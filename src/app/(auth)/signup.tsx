@@ -9,8 +9,9 @@ import {
   Image,
   TouchableWithoutFeedback,
   Keyboard,
+  KeyboardAvoidingView,
+  StyleSheet
 } from "react-native";
-import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import React, { useState, useCallback, useRef } from "react";
 import { Link, useRouter } from "expo-router";
 import { Ionicons } from '@expo/vector-icons';
@@ -51,28 +52,22 @@ const EmailLoginScreen = () => {
     if (message) setMessage('');
   }, [message]);
 
-  const scrollViewRef = useRef<KeyboardAwareScrollView>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
 
   return (
     <SafeAreaView className="flex-1 bg-white">
-      <KeyboardAwareScrollView
-        ref={scrollViewRef}
-        contentContainerStyle={{
-          flexGrow: 1,
-          padding: 24,
-          paddingTop: 32,
-          paddingBottom: 40, // Increased bottom padding for better scrolling
-        }}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        enableOnAndroid={true}
-        enableAutomaticScroll={true}
-        enableResetScrollToCoords={true}
-        keyboardOpeningTime={0}
-        extraScrollHeight={Platform.select({ ios: 30, android: 20 })}
-        extraHeight={Platform.select({ android: 100, ios: 0 })}
-        keyboardDismissMode="interactive"
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardAvoidingView}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
+        <ScrollView
+          ref={scrollViewRef}
+          contentContainerStyle={styles.scrollViewContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          keyboardDismissMode="on-drag"
+        >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
           <View className="flex-1">
             <Text className="text-4xl font-bold text-gray-900 mb-3">
@@ -105,9 +100,9 @@ const EmailLoginScreen = () => {
                   includeFontPadding: false // Remove extra padding for text
                 }}
                 onFocus={() => {
-                  // Prevent jumping by scrolling to a fixed position
+                  // Scroll to the top when input is focused
                   requestAnimationFrame(() => {
-                    scrollViewRef.current?.scrollToPosition(0, 0, false);
+                    scrollViewRef.current?.scrollTo({ y: 0, animated: false });
                   });
                 }}
               />
@@ -172,10 +167,23 @@ const EmailLoginScreen = () => {
               </View>
             </View>
           </View>
-        </TouchableWithoutFeedback>
-      </KeyboardAwareScrollView>
+          </TouchableWithoutFeedback>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
+
+const styles = StyleSheet.create({
+  keyboardAvoidingView: {
+    flex: 1,
+  },
+  scrollViewContent: {
+    flexGrow: 1,
+    padding: 24,
+    paddingTop: 32,
+    paddingBottom: 40,
+  },
+});
 
 export default EmailLoginScreen;
