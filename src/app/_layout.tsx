@@ -1,11 +1,7 @@
 import "../../global.css";
+import "../lib/i18n";
+import { Slot } from 'expo-router';
 
-import { View, Text } from 'react-native'
-import React from 'react'
-import { Slot } from 'expo-router'
-
-const RootLayout = () => {
-  return <Slot />
+export default function RootLayout() {
+  return <Slot />;
 }
-
-export default RootLayout;

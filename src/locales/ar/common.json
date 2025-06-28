@@ -1,0 +1,13 @@
+{
+  "greeting": "مرحباً",
+  "welcome": "أهلاً بك في سيركلو",
+  "create_account": "إنشاء حساب",
+  "username": "اسم المستخدم",
+  "email": "البريد الإلكتروني",
+  "password": "كلمة المرور",
+  "confirm_password": "تأكيد كلمة المرور",
+  "sign_up": "اشتراك",
+  "or_sign_up_with": "أو اشترك مع",
+  "already_have_account": "هل لديك حساب بالفعل؟",
+  "sign_in": "تسجيل الدخول"
+}
