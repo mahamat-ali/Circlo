@@ -1,11 +1,11 @@
-import { View, Text } from 'react-native'
-import React from 'react'
-import { Slot } from 'expo-router'
+import { View, Text } from 'react-native';
+import React from 'react';
+import { Slot } from 'expo-router';
 
 const AuthLayout = () => {
   return (
-    <Slot/>
-  )
-}
+    <Slot />
+  );
+};
 
-export default AuthLayout
+export default AuthLayout;
