@@ -10,11 +10,15 @@ import {
     TouchableWithoutFeedback,
     Keyboard,
     KeyboardAvoidingView,
-    StyleSheet
+    StyleSheet,
+    Alert
 } from "react-native";
 import React, { useState, useCallback, useRef } from "react";
-import { Link, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { Ionicons } from '@expo/vector-icons';
+import { useSignIn, useSignUp, useSSO } from '@clerk/clerk-expo';
+import * as WebBrowser from 'expo-web-browser';
+import * as AuthSession from 'expo-auth-session';
 
 const EmailLoginScreen = () => {
     const [email, setEmail] = useState("");
@@ -22,25 +26,108 @@ const EmailLoginScreen = () => {
     const [message, setMessage] = useState('');
     const [messageType, setMessageType] = useState<'success' | 'error' | ''>('');
     const router = useRouter();
+    const { signIn, setActive } = useSignIn();
+    const { signUp } = useSignUp();
+    const { startSSOFlow } = useSSO();
 
-    const handleSubmit = async () => {
+    React.useEffect(() => {
+        WebBrowser.warmUpAsync();
+        return () => {
+            WebBrowser.coolDownAsync();
+        };
+    }, []);
+
+    const handleEmailAuth = async () => {
         if (!email.trim()) {
             setMessage('Please enter your email');
+            setMessageType('error');
+            return;
+        }
+
+        // Basic email validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            setMessage('Please enter a valid email address');
+            setMessageType('error');
             return;
         }
 
         setIsLoading(true);
         setMessage('');
+        setMessageType('');
 
         try {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            setMessage('Check your email for the magic link!');
-            setMessageType('success');
-            setEmail('');
-            router.push('/otp-confirm');
+            // Try to sign in first
+            const signInResult = await signIn?.create({
+                identifier: email.trim(),
+            });
+
+            if (signInResult?.status === 'needs_first_factor') {
+                // Send email code for existing user
+                const emailFactor = signInResult.supportedFirstFactors?.find(
+                    (factor) => factor.strategy === 'email_code'
+                );
+
+                if (emailFactor && 'emailAddressId' in emailFactor) {
+                    await signInResult.prepareFirstFactor({
+                        strategy: 'email_code',
+                        emailAddressId: emailFactor.emailAddressId,
+                    });
+
+                    setMessage('Check your email for the verification code!');
+                    setMessageType('success');
+                    router.push(`/verify-email?email=${encodeURIComponent(email.trim())}`);
+                }
+            }
+        } catch (signInError: any) {
+            // If sign in fails, try to sign up
+            try {
+                const signUpResult = await signUp?.create({
+                    emailAddress: email.trim(),
+                });
+
+                if (signUpResult?.status === 'missing_requirements') {
+                    // Send verification email for new user
+                    await signUpResult.prepareEmailAddressVerification({ strategy: 'email_code' });
+
+                    setMessage('Check your email for the verification code!');
+                    setMessageType('success');
+                    router.push(`/verify-email?email=${encodeURIComponent(email.trim())}`);
+                }
+            } catch (signUpError: any) {
+                console.error('Email auth error:', signUpError);
+                setMessage(signUpError.errors?.[0]?.message || 'Failed to send verification email. Please try again.');
+                setMessageType('error');
+            }
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleSocialSignUp = async (provider: string) => {
+
+        setIsLoading(true);
+        try {
+            const strategy = `oauth_${provider}` as 'oauth_google' | 'oauth_facebook' | 'oauth_apple' | 'enterprise_sso';
+            const { createdSessionId, setActive, signIn, signUp } =
+                await startSSOFlow({
+                    strategy: strategy as 'oauth_google' | 'oauth_facebook' | 'oauth_apple',
+                    redirectUrl: AuthSession.makeRedirectUri({
+                        scheme: "lizza",
+                        path: "/",
+                    }),
+                });
+            if (createdSessionId) {
+                console.log("Created session ID:", createdSessionId);
+            }
+            console.log(signIn);
+    // router.replace("/");
         } catch (error) {
-            setMessage('Failed to send magic link. Please try again.');
-            setMessageType('error');
+            console.error(`${provider} signup error:`, error);
+            Alert.alert(
+                "Error",
+                `An error occurred during ${provider} sign up. Please try again.`
+            );
         } finally {
             setIsLoading(false);
         }
@@ -100,7 +187,7 @@ const EmailLoginScreen = () => {
                                     onChangeText={handleEmailChange}
                                     editable={!isLoading}
                                     returnKeyType="done"
-                                    onSubmitEditing={handleSubmit}
+                                    onSubmitEditing={handleEmailAuth}
                                     style={{
                                         fontSize: 16,
                                         color: '#1a1a1a',
@@ -119,15 +206,16 @@ const EmailLoginScreen = () => {
                             </View>
 
                             {message ? (
-                                <Text className={`text-sm mb-4 ${message.includes('Check your email') ? 'text-green-600' : 'text-red-600'}`}>
+                                <Text className={`text-sm mb-4 ${messageType === 'success' ? 'text-green-600' : 'text-red-600'}`}>
                                     {message}
                                 </Text>
                             ) : null}
 
                             <TouchableOpacity
-                                className="w-full bg-indigo-600 rounded-full py-4 mb-6"
+                                className={`w-full rounded-full py-4 mb-6 ${isLoading ? 'bg-indigo-400' : 'bg-indigo-600'
+                                    }`}
                                 activeOpacity={0.8}
-                                onPress={handleSubmit}
+                                onPress={handleEmailAuth}
                                 disabled={isLoading}
                             >
                                 <Text className="text-center text-white font-semibold text-lg">
@@ -143,23 +231,29 @@ const EmailLoginScreen = () => {
 
                             <View className="flex-row justify-between w-full mb-6">
                                 <TouchableOpacity
-                                    className="bg-white border border-gray-200 rounded-full p-4 flex-1 mx-2 items-center"
+                                    className={`bg-white border border-gray-200 rounded-full p-4 flex-1 mx-2 items-center ${isLoading ? 'opacity-50' : ''
+                                        }`}
                                     activeOpacity={0.7}
                                     disabled={isLoading}
+                                    onPress={() => handleSocialSignUp('google')}
                                 >
                                     <Ionicons name="logo-google" size={28} color="#DB4437" />
                                 </TouchableOpacity>
                                 <TouchableOpacity
-                                    className="bg-white border border-gray-200 rounded-full p-4 flex-1 mx-2 items-center"
+                                    className={`bg-white border border-gray-200 rounded-full p-4 flex-1 mx-2 items-center ${isLoading ? 'opacity-50' : ''
+                                        }`}
                                     activeOpacity={0.7}
                                     disabled={isLoading}
+                                    onPress={() => handleSocialSignUp('facebook')}
                                 >
                                     <Ionicons name="logo-facebook" size={28} color="#4267B2" />
                                 </TouchableOpacity>
                                 <TouchableOpacity
-                                    className="bg-black rounded-full p-4 flex-1 mx-2 items-center"
+                                    className={`bg-black rounded-full p-4 flex-1 mx-2 items-center ${isLoading ? 'opacity-50' : ''
+                                        }`}
                                     activeOpacity={0.7}
                                     disabled={isLoading}
+                                    onPress={() => handleSocialSignUp('apple')}
                                 >
                                     <Ionicons name="logo-apple" size={28} color="white" />
                                 </TouchableOpacity>
