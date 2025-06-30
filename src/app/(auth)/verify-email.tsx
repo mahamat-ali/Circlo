@@ -59,7 +59,7 @@ const VerifyEmailScreen = () => {
 
                 if (verificationResult.status === 'complete') {
                     await setActive?.({ session: verificationResult.createdSessionId });
-                    router.replace('/');
+                    router.replace('/(auth)/onboarding');
                     return;
                 }
             }
@@ -72,7 +72,7 @@ const VerifyEmailScreen = () => {
 
                 if (verificationResult.status === 'complete') {
                     await setActive?.({ session: verificationResult.createdSessionId });
-                    router.replace('/');
+                    router.replace('/(auth)/onboarding');
                     return;
                 }
             }
@@ -90,7 +90,7 @@ const VerifyEmailScreen = () => {
 
                         if (verificationResult.status === 'complete') {
                             await setActive?.({ session: verificationResult.createdSessionId });
-                            router.replace('/');
+                            router.replace('/(auth)/onboarding');
                             return;
                         }
                     } catch (signInError) {
@@ -107,7 +107,7 @@ const VerifyEmailScreen = () => {
 
                         if (verificationResult.status === 'complete') {
                             await setActive?.({ session: verificationResult.createdSessionId });
-                            router.replace('/');
+                            router.replace('/(auth)/onboarding');
                             return;
                         }
                     } catch (signUpError) {

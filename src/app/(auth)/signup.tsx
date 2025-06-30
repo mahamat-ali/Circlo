@@ -26,7 +26,7 @@ const EmailLoginScreen = () => {
     const [message, setMessage] = useState('');
     const [messageType, setMessageType] = useState<'success' | 'error' | ''>('');
     const router = useRouter();
-    const { signIn, setActive } = useSignIn();
+    const { signIn } = useSignIn();
     const { signUp } = useSignUp();
     const { startSSOFlow } = useSSO();
 
@@ -121,7 +121,7 @@ const EmailLoginScreen = () => {
                 console.log("Created session ID:", createdSessionId);
             }
             console.log(signIn);
-    // router.replace("/");
+            router.replace("/(auth)/onboarding");
         } catch (error) {
             console.error(`${provider} signup error:`, error);
             Alert.alert(
