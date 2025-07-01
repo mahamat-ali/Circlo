@@ -59,7 +59,7 @@ const VerifyEmailScreen = () => {
 
                 if (verificationResult.status === 'complete') {
                     await setActive?.({ session: verificationResult.createdSessionId });
-                    router.replace('/(auth)/onboarding');
+                    router.replace('/test-upload');
                     return;
                 }
             }

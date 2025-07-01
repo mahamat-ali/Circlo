@@ -3,6 +3,7 @@ import { ClerkLoaded, ClerkProvider } from "@clerk/clerk-expo";
 import "../../global.css";
 import { Slot } from "expo-router";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
+import TestUploadScreen from "./test-upload";
 
 
 
@@ -16,7 +17,7 @@ export default function RootLayout() {
   return (
     <ClerkProvider tokenCache={tokenCache} publishableKey={publishableKey}>
       <ClerkLoaded>
-        <Slot />
+        <TestUploadScreen />
       </ClerkLoaded>
     </ClerkProvider>
   );
