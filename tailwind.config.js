@@ -10,7 +10,7 @@ module.exports = {
         background: "#ffffff",
         foreground: "#0f172a",
         primary: {
-          DEFAULT: "#6C5CE7",
+          DEFAULT: "#4f46e5",
           foreground: "#ffffff",
         },
         secondary: {
@@ -27,8 +27,8 @@ module.exports = {
         },
       },
       borderRadius: {
-        DEFAULT: '0.5rem',
-        full: '9999px',
+        DEFAULT: "0.5rem",
+        full: "9999px",
       },
     },
   },
