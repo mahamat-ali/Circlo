@@ -4,7 +4,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { useClerkSupabaseClient } from '@/lib/supabase';
 import { useUser } from '@clerk/clerk-expo';
-import { uploadAvatar } from '@/services/profile';
+import { uploadAvatar } from '@/utils/fileUpload';
 
 const TestUploadScreen = () => {
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -14,37 +14,56 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { useRouter } from "expo-router";
-import { useQuery } from "@tanstack/react-query";
-import { useClerkSupabaseClient } from "../../lib/supabase";
+import { useRouter, useLocalSearchParams } from "expo-router";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useClerkSupabaseClient } from "../../../lib/supabase";
 import { useUser } from "@clerk/clerk-expo";
-import ScreenWrapper from "../../components/ScreenWrapper";
-import { getCategories } from "../../services/categories";
-import { uploadProductImage } from "../../utils/fileUpload";
+import ScreenWrapper from "../../../components/ScreenWrapper";
+import { getCategories } from "../../../services/categories";
+import { getProductById, updateProduct } from "../../../services/products";
+import { Database } from "../../../types/database.types";
+import { uploadProductImage } from "../../../utils/fileUpload";
 
 const MAX_IMAGES = 5;
 const MAX_DESCRIPTION_LENGTH = 1000;
 
-const CreateScreen = () => {
+type ProductStatus = Database["public"]["Enums"]["product_status"];
+
+const EditProductScreen = () => {
   const router = useRouter();
-  const [images, setImages] = useState([]);
-  const [video, setVideo] = useState(null); // Video state is kept for future use
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const queryClient = useQueryClient();
+  
+  const [images, setImages] = useState<string[]>([]);
   const [title, setTitle] = useState("");
   const [price, setPrice] = useState("");
   const [description, setDescription] = useState("");
   const [condition, setCondition] = useState("");
-  const [categoryId, setCategoryId] = useState(null);
+  const [categoryId, setCategoryId] = useState<string | null>(null);
   const [address, setAddress] = useState("");
-  const [deliveryTypes, setDeliveryTypes] = useState([]);
+  const [deliveryTypes, setDeliveryTypes] = useState<string[]>([]);
   const [isNegotiable, setIsNegotiable] = useState(false);
+  const [status, setStatus] = useState<ProductStatus>("available");
 
   const [isLoading, setIsLoading] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errors, setErrors] = useState({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [newImages, setNewImages] = useState<string[]>([]); // Track newly added images
+  const [removedImages, setRemovedImages] = useState<string[]>([]); // Track removed images
 
   // Get Supabase client and user
   const supabaseClient = useClerkSupabaseClient();
   const { user } = useUser();
+
+  // Fetch product data
+  const {
+    data: product,
+    isLoading: productLoading,
+    error: productError,
+  } = useQuery({
+    queryKey: ["product", id],
+    queryFn: () => getProductById(supabaseClient, id!, user?.id || null),
+    enabled: !!supabaseClient && !!id,
+  });
 
   // Fetch categories using React Query
   const {
@@ -56,7 +75,28 @@ const CreateScreen = () => {
     queryFn: () => getCategories(supabaseClient),
     enabled: !!supabaseClient,
     staleTime: 10 * 60 * 1000, // 10 minutes
-    cacheTime: 30 * 60 * 1000, // 30 minutes
+    gcTime: 30 * 60 * 1000, // 30 minutes
+  });
+
+  // Update product mutation
+  const updateProductMutation = useMutation({
+    mutationFn: async (updateData: any) => {
+      return updateProduct(supabaseClient, id!, updateData);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["product", id] });
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      Alert.alert("Success!", "Your product has been updated successfully.", [
+        { text: "OK", onPress: () => router.back() },
+      ]);
+    },
+    onError: (error: any) => {
+      console.error("Error updating product:", error);
+      Alert.alert(
+        "Update Error",
+        error.message || "Failed to update product. Please try again."
+      );
+    },
   });
 
   const conditions = [
@@ -67,17 +107,51 @@ const CreateScreen = () => {
     "For Parts",
   ];
   const availableDeliveryTypes = ["Pickup", "Shipping"];
+  const statusOptions: { value: ProductStatus; label: string }[] = [
+    { value: "available", label: "Available" },
+    { value: "sold", label: "Sold" },
+  ];
 
-  // Handle categories error
-  React.useEffect(() => {
+  // Populate form when product data is loaded
+  useEffect(() => {
+    if (product) {
+      // Check if user owns this product
+      if (product.user_id !== user?.id) {
+        Alert.alert("Access Denied", "You can only edit your own products.", [
+          { text: "OK", onPress: () => router.back() },
+        ]);
+        return;
+      }
+
+      setImages(product.images || []);
+      setTitle(product.title);
+      setPrice(product.price.toString());
+      setDescription(product.description || "");
+      setCondition(product.condition || "");
+      setCategoryId(product.categories?.id || "");
+      setAddress(product.address || "");
+      setDeliveryTypes(product.delivery_type || []);
+      setIsNegotiable(product.is_negotiable);
+      setStatus(product.status);
+    }
+  }, [product, user?.id, router]);
+
+  // Handle errors
+  useEffect(() => {
+    if (productError) {
+      console.error("Error fetching product:", productError);
+      Alert.alert("Error", "Could not load product data.", [
+        { text: "OK", onPress: () => router.back() },
+      ]);
+    }
     if (categoriesError) {
       console.error("Error fetching categories:", categoriesError);
       Alert.alert("Error", "Could not load categories.");
     }
-  }, [categoriesError]);
+  }, [productError, categoriesError, router]);
 
   const validateForm = () => {
-    const newErrors = {};
+    const newErrors: Record<string, string> = {};
     if (!title.trim()) newErrors.title = "Title is required";
     if (!price.trim() || isNaN(parseFloat(price)) || parseFloat(price) <= 0) {
       newErrors.price = "A valid price is required";
@@ -88,10 +162,10 @@ const CreateScreen = () => {
     }
     if (!condition) newErrors.condition = "Please select a condition";
     if (!categoryId) newErrors.category = "Please select a category";
-    if (!address.trim()) {
-      newErrors.address = "Address is required";
+    if (deliveryTypes.includes("Pickup") && !address.trim()) {
+      newErrors.address = "Pickup address is required if pickup is offered";
     }
-    if (images.length === 0)
+    if (images.length === 0 && newImages.length === 0)
       newErrors.images = "At least one image is required";
     if (deliveryTypes.length === 0)
       newErrors.delivery = "Select at least one delivery type";
@@ -101,7 +175,8 @@ const CreateScreen = () => {
   };
 
   const pickImage = useCallback(async () => {
-    if (images.length >= MAX_IMAGES) {
+    const totalImages = images.length + newImages.length;
+    if (totalImages >= MAX_IMAGES) {
       Alert.alert(
         "Limit Reached",
         `You can only upload a maximum of ${MAX_IMAGES} images.`
@@ -114,11 +189,11 @@ const CreateScreen = () => {
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [4, 3],
-        quality: 0.2,
+        quality: 0.8,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setImages((prev) => [...prev, result.assets[0].uri]);
+        setNewImages((prev) => [...prev, result.assets[0].uri]);
       }
     } catch (error) {
       console.error("Image picker error:", error);
@@ -126,13 +201,19 @@ const CreateScreen = () => {
     } finally {
       setIsLoading(false);
     }
+  }, [images, newImages]);
+
+  const removeExistingImage = useCallback((index: number) => {
+    const imageToRemove = images[index];
+    setImages((prev) => prev.filter((_, i) => i !== index));
+    setRemovedImages((prev) => [...prev, imageToRemove]);
   }, [images]);
 
-  const removeImage = useCallback((index) => {
-    setImages((prev) => prev.filter((_, i) => i !== index));
+  const removeNewImage = useCallback((index: number) => {
+    setNewImages((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  const toggleDeliveryType = (type) => {
+  const toggleDeliveryType = (type: string) => {
     setDeliveryTypes((prev) =>
       prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
     );
@@ -148,87 +229,108 @@ const CreateScreen = () => {
     }
 
     if (!user || !supabaseClient) {
-      Alert.alert(
-        "Authentication Error",
-        "Please make sure you are logged in."
-      );
+      Alert.alert("Authentication Error", "Please make sure you are logged in.");
       return;
     }
 
-    setIsSubmitting(true);
     try {
-      // 1. Upload images to Supabase Storage
-      const imageUrls = [];
-      for (const uri of images) {
+      // 1. Upload new images to Supabase Storage
+      const newImageUrls: string[] = [];
+      for (const uri of newImages) {
         const response = await fetch(uri);
         const blob = await response.blob();
-
+        
         const publicUrl = await uploadProductImage(
           supabaseClient,
           user.id,
           blob,
           blob.type
         );
-        imageUrls.push(publicUrl);
+        newImageUrls.push(publicUrl);
       }
 
-      // 2. Prepare product data
-      const newProduct = {
-        user_id: user.id,
+      // 2. Delete removed images from storage (optional - for cleanup)
+      for (const imageUrl of removedImages) {
+        try {
+          // Extract file path from URL
+          const urlParts = imageUrl.split("/");
+          const fileName = urlParts[urlParts.length - 1];
+          const filePath = `${user.id}/${fileName}`;
+          
+          await supabaseClient.storage.from("products").remove([filePath]);
+        } catch (error) {
+          console.warn("Failed to delete image from storage:", error);
+          // Continue even if deletion fails
+        }
+      }
+
+      // 3. Prepare updated product data
+      const finalImages = [...images, ...newImageUrls];
+      const updateData = {
         title,
         description,
         price: parseFloat(price),
         is_negotiable: isNegotiable,
-        images: imageUrls,
+        images: finalImages,
         condition,
         delivery_type: deliveryTypes,
-        address: address,
-        category_id: categoryId,
-        status: "available",
+        address: deliveryTypes.includes("Pickup") ? address : null,
+        category_id: categoryId!,
+        status,
+        updated_at: new Date().toISOString(),
       };
 
-      // 3. Insert product into the database
-      const { error: insertError } = await supabaseClient
-        .from("products")
-        .insert(newProduct);
-      if (insertError) throw insertError;
-
-      Alert.alert("Success!", "Your item has been listed successfully.", [
-        { text: "OK", onPress: () => router.push("/(tabs)/") },
-      ]);
-
-      // Reset form
-      setImages([]);
-      setTitle("");
-      setPrice("");
-      setDescription("");
-      setCondition("");
-      setCategoryId(null);
-      setAddress("");
-      setDeliveryTypes([]);
-      setIsNegotiable(false);
-      setErrors({});
+      // 4. Update product in the database
+      await updateProductMutation.mutateAsync(updateData);
     } catch (error) {
-      console.error("Error creating listing:", error);
+      console.error("Error updating product:", error);
       Alert.alert(
-        "Submission Error",
-        error.message || "Failed to create listing. Please try again."
+        "Update Error",
+        "Failed to update product. Please try again."
       );
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
+  if (productLoading) {
+    return (
+      <ScreenWrapper>
+        <View className="flex-1 items-center justify-center bg-white">
+          <ActivityIndicator size="large" color="#4F46E5" />
+          <Text className="text-gray-500 mt-4">Loading product...</Text>
+        </View>
+      </ScreenWrapper>
+    );
+  }
+
+  if (!product) {
+    return (
+      <ScreenWrapper>
+        <View className="flex-1 items-center justify-center bg-white">
+          <Text className="text-gray-500 text-lg">Product not found</Text>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            className="mt-4 bg-indigo-600 px-6 py-3 rounded-xl"
+          >
+            <Text className="text-white font-semibold">Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </ScreenWrapper>
+    );
+  }
+
+  const allImages = [...images, ...newImages];
+
   return (
-    <ScreenWrapper className="flex-1 bg-white" bottom={true}>
+    <ScreenWrapper bottom={true}>
       <StatusBar barStyle="dark-content" backgroundColor="white" />
       <ScrollView showsVerticalScrollIndicator={false}>
+        {/* Header */}
         <View className="px-4 py-6 border-b border-gray-100 items-center">
           <Text className="text-3xl font-bold text-gray-900">
-            Create Listing
+            Edit Listing
           </Text>
           <Text className="text-gray-500 mt-1">
-            Fill in the details to sell your item
+            Update your product details
           </Text>
         </View>
 
@@ -243,15 +345,16 @@ const CreateScreen = () => {
               showsHorizontalScrollIndicator={false}
               className="-mx-2"
             >
+              {/* Existing Images */}
               {images.map((uri, index) => (
-                <View key={index} className="mx-2 relative">
+                <View key={`existing-${index}`} className="mx-2 relative">
                   <Image
                     source={{ uri }}
                     className="w-32 h-32 rounded-xl"
                     style={{ resizeMode: "cover" }}
                   />
                   <TouchableOpacity
-                    onPress={() => removeImage(index)}
+                    onPress={() => removeExistingImage(index)}
                     className="absolute -top-2 -right-2 bg-red-500 rounded-full p-1.5 shadow-lg"
                   >
                     <Ionicons name="close" size={14} color="white" />
@@ -265,7 +368,31 @@ const CreateScreen = () => {
                   )}
                 </View>
               ))}
-              {images.length < MAX_IMAGES && (
+              
+              {/* New Images */}
+              {newImages.map((uri, index) => (
+                <View key={`new-${index}`} className="mx-2 relative">
+                  <Image
+                    source={{ uri }}
+                    className="w-32 h-32 rounded-xl"
+                    style={{ resizeMode: "cover" }}
+                  />
+                  <TouchableOpacity
+                    onPress={() => removeNewImage(index)}
+                    className="absolute -top-2 -right-2 bg-red-500 rounded-full p-1.5 shadow-lg"
+                  >
+                    <Ionicons name="close" size={14} color="white" />
+                  </TouchableOpacity>
+                  <View className="absolute bottom-2 left-2 bg-green-600/70 rounded-md px-2 py-1">
+                    <Text className="text-white text-xs font-medium">
+                      New
+                    </Text>
+                  </View>
+                </View>
+              ))}
+              
+              {/* Add Photo Button */}
+              {allImages.length < MAX_IMAGES && (
                 <TouchableOpacity
                   onPress={pickImage}
                   disabled={isLoading}
@@ -362,6 +489,41 @@ const CreateScreen = () => {
             </View>
           </View>
 
+          {/* Status */}
+          <View className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+            <Text className="text-base font-semibold text-gray-900 mb-3">
+              Status <Text className="text-red-500">*</Text>
+            </Text>
+            <View className="flex-row space-x-3">
+              {statusOptions.map((option) => (
+                <TouchableOpacity
+                  key={option.value}
+                  onPress={() => setStatus(option.value)}
+                  className={`flex-1 px-4 py-4 rounded-xl border-2 items-center ${
+                    status === option.value
+                      ? "bg-indigo-600 border-indigo-600"
+                      : "bg-gray-50 border-gray-200"
+                  }`}
+                >
+                  <Ionicons
+                    name={option.value === "available" ? "checkmark-circle" : "close-circle"}
+                    size={20}
+                    color={status === option.value ? "#FFFFFF" : "#6B7280"}
+                  />
+                  <Text
+                    className={`font-semibold text-sm mt-1 ${
+                      status === option.value
+                        ? "text-white"
+                        : "text-gray-700"
+                    }`}
+                  >
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
           {/* Condition */}
           <View className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
             <Text className="text-base font-semibold text-gray-900 mb-3">
@@ -413,7 +575,7 @@ const CreateScreen = () => {
               </View>
             ) : (
               <View className="flex-row flex-wrap -mx-1">
-                {categories.map((item) => (
+                {categories.map((item: any) => (
                   <TouchableOpacity
                     key={item.id}
                     onPress={() => setCategoryId(item.id)}
@@ -437,38 +599,6 @@ const CreateScreen = () => {
             {errors.category && (
               <Text className="text-red-500 text-xs mt-2">
                 {errors.category}
-              </Text>
-            )}
-          </View>
-
-          {/* Address */}
-          <View className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-            <Text className="text-base font-semibold text-gray-900 mb-3">
-              Address <Text className="text-red-500">*</Text>
-            </Text>
-            <View className="relative">
-              <Ionicons
-                name="location-outline"
-                size={20}
-                color="#6B7280"
-                className="absolute left-4 top-4 z-10"
-              />
-              <TextInput
-                className={`bg-gray-50 rounded-xl pl-12 pr-4 py-4 text-gray-900 text-base ${
-                  errors.address
-                    ? "border-2 border-red-500"
-                    : "border border-gray-200"
-                }`}
-                placeholder="Enter your full address"
-                value={address}
-                onChangeText={setAddress}
-                placeholderTextColor="#9CA3AF"
-                multiline
-              />
-            </View>
-            {errors.address && (
-              <Text className="text-red-500 text-xs mt-2">
-                {errors.address}
               </Text>
             )}
           </View>
@@ -512,6 +642,40 @@ const CreateScreen = () => {
               </Text>
             )}
           </View>
+
+          {/* Address (conditional) */}
+          {deliveryTypes.includes("Pickup") && (
+            <View className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+              <Text className="text-base font-semibold text-gray-900 mb-3">
+                Pickup Location <Text className="text-red-500">*</Text>
+              </Text>
+              <View className="relative">
+                <Ionicons
+                  name="location-outline"
+                  size={20}
+                  color="#6B7280"
+                  className="absolute left-4 top-4 z-10"
+                />
+                <TextInput
+                  className={`bg-gray-50 rounded-xl pl-12 pr-4 py-4 text-gray-900 text-base ${
+                    errors.address
+                      ? "border-2 border-red-500"
+                      : "border border-gray-200"
+                  }`}
+                  placeholder="Enter full address for pickup"
+                  value={address}
+                  onChangeText={setAddress}
+                  placeholderTextColor="#9CA3AF"
+                  multiline
+                />
+              </View>
+              {errors.address && (
+                <Text className="text-red-500 text-xs mt-2">
+                  {errors.address}
+                </Text>
+              )}
+            </View>
+          )}
 
           {/* Description */}
           <View className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
@@ -558,10 +722,10 @@ const CreateScreen = () => {
         <View className="px-4 py-6 mt-4">
           <TouchableOpacity
             className={`bg-indigo-600 rounded-2xl py-4 items-center shadow-lg ${
-              isSubmitting ? "opacity-70" : ""
+              updateProductMutation.isPending ? "opacity-70" : ""
             }`}
             onPress={handleSubmit}
-            disabled={isSubmitting}
+            disabled={updateProductMutation.isPending}
             style={{
               shadowColor: "#4F46E5",
               shadowOffset: { width: 0, height: 4 },
@@ -570,18 +734,18 @@ const CreateScreen = () => {
               elevation: 8,
             }}
           >
-            {isSubmitting ? (
+            {updateProductMutation.isPending ? (
               <View className="flex-row items-center">
                 <ActivityIndicator color="white" size="small" />
                 <Text className="text-white font-semibold text-lg ml-2">
-                  Creating...
+                  Updating...
                 </Text>
               </View>
             ) : (
               <View className="flex-row items-center">
-                <Ionicons name="add-circle" size={24} color="white" />
+                <Ionicons name="checkmark-circle" size={24} color="white" />
                 <Text className="text-white font-semibold text-lg ml-2">
-                  Create Listing
+                  Update Listing
                 </Text>
               </View>
             )}
@@ -594,4 +758,4 @@ const CreateScreen = () => {
   );
 };
 
-export default CreateScreen;
+export default EditProductScreen;
